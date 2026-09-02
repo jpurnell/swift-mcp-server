@@ -1,14 +1,36 @@
 # Changelog
 
-## [Unreleased] — `feat/mcp-2026-07-28`
+## [Unreleased]
 
-**Mergeable.** The SDK work is published as a fork —
-[`jpurnell/swift-mcp-sdk`](https://github.com/jpurnell/swift-mcp-sdk) at `2026.7.28`, also
-tagged `fork/2026.07.28-1` — and `Package.swift` depends on it by exact version rather than by
-local path, so `DevGuidelinesMCP`, `GeoSEOMCP` and `VaultMCP` can resolve it.
+## [2.0.0] - 2026-09-02
+
+**MCP `2026-07-28`.** Conformance verified against
+`@modelcontextprotocol/conformance@0.2.0-alpha.11`: **195/195** on `--requirements 2026-07-28`
+and **227/227** on `--suite all`, reproducible from the `conformance-server` target in this
+package.
+
+**Major, and the reason is the dependency, not the API.** The server itself is additive — a
+pre-2026 client is served exactly as before, and `DualRevisionServingTests` is the proof. What
+breaks is underneath: this package now resolves the MCP SDK as
+[`jpurnell/swift-mcp-sdk`](https://github.com/jpurnell/swift-mcp-sdk) at `2026.7.28`, a **fork**
+carrying revision support upstream does not have, and SwiftOAuth as
+[`jpurnell/swift-oauth`](https://github.com/jpurnell/swift-oauth) at `0.7.1`.
+
+**Consumers must migrate both, not just bump this version.** SwiftPM derives package identity
+from the URL's last path component, so `swift-sdk` and `swift-mcp-sdk` are two identities for
+one repository. A consumer that keeps a direct dependency on `jpurnell/swift-sdk` or
+`modelcontextprotocol/swift-sdk` while depending on this package will fail to build with
+*"multiple similar targets 'MCP' … appear in package 'swift-sdk' and 'swift-mcp-sdk'"* — the
+same trap applies to `SwiftOAuth` versus `swift-oauth`. The fix is to replace the direct
+dependency and update its `package:` product references; it is not a version-range problem and
+no range will resolve it.
 
 Upstream does not carry `2026-07-28` and this is not the official SDK; the fork's NOTICE and
 README say so, and point anyone who does not need this revision back to upstream.
+
+**Published.** This release is also exported, with clean history, to
+[`jpurnell/swift-mcp-server`](https://github.com/jpurnell/swift-mcp-server) so the conformance
+figures can be checked by someone who does not have this repository.
 
 ### Added
 - **Serves MCP `2026-07-28` alongside earlier revisions.** `server/discover` and
