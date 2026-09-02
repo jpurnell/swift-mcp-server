@@ -1,0 +1,23 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+*.md~
+
+# Claude Code local settings (personal preferences, not shared)
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Quality gate generated reports. The path moved with the v2 layout; the old rule kept
+# matching nothing while the file it was written for sat tracked at the new one.
+development-guidelines/07_LIBRARY/latestReport.json
+project/library/latestReport.json
+\#*\#
+
+# Vendored development-guidelines framework (managed, replaceable)
+/development-guidelines/
+/.claude/skills/
+/development-guidelines.pre-v2/
