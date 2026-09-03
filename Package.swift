@@ -27,14 +27,14 @@ let package = Package(
         // is what lets anyone else build this one, and therefore check its conformance numbers
         // rather than take them on trust.
         //
-        // Bounded below 0.8.0 deliberately, not out of caution about 0.x in general. 0.8.0
-        // introduces RFC 8707 resource-indicator validation on the provider side, strict by
-        // default: a token request naming no `resource` is refused with `invalid_target`. This
-        // package's authorization path sets no resource indicator anywhere, so taking 0.8.0
-        // silently would turn a routine `swift package update` into a server that rejects
-        // requests it accepts today. Raise the bound as a deliberate change, with the migration
-        // done in the same commit.
-        .package(url: "https://github.com/jpurnell/swift-oauth.git", "0.7.1"..<"0.8.0"),
+        // The bound that used to sit below 0.8.0 is gone, and the reason it existed is handled
+        // rather than deferred: 0.8.0 turns on RFC 8707 resource-indicator validation, strict by
+        // default, so a token request naming no `resource` is refused. Every client written
+        // before that names none. `setupOAuth` therefore constructs its policy with
+        // `allowsUnspecified: true` — the documented staging path — which takes the audience
+        // binding, introspection, the device grant, PAR and JAR without changing who can
+        // connect. Tightening to strict is a separate step, once clients send a resource.
+        .package(url: "https://github.com/jpurnell/swift-oauth.git", from: "0.11.0"),
         // MCP SDK, upstream. The jpurnell fork this used to point at existed for one
         // 15-line SendOnce concurrency patch on 0.11.0; upstream 0.12.1 builds clean under
         // Swift 6.4 with StrictConcurrency, so the patch — and the "..<0.12.0" cap that

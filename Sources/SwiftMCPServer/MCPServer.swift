@@ -615,20 +615,42 @@ public final class MCPServerBuilder: @unchecked Sendable {
         }
 
         do {
-            // Resolved before use: the directory can come from `storageDirectory(_:)`, which
-            // accepts any URL a caller supplies.
-            let directory = storageDirectory.standardized
-            try FileManager.default.createDirectory(
-                at: directory, withIntermediateDirectories: true)
+            // Created 0700 and resolved before use: the directory can come from
+            // `storageDirectory(_:)`, which accepts any URL a caller supplies.
+            let directory = try ServerStorageDirectory.prepare(storageDirectory)
             MCPServer.warnIfLegacyStorageExists(inUse: directory)
 
-            let oauthDbPath = directory.appendingPathComponent("oauth.db").path
-            let oauthStorage = try OAuthStorage(path: oauthDbPath)
+            let database = directory.appendingPathComponent("oauth.db")
+            let oauthStorage = try OAuthStorage(path: database.path)
+            // After opening, because SQLite creates the file 0644 and it holds access tokens.
+            ServerStorageDirectory.restrict(fileAt: database)
 
             let issuer = ProcessInfo.processInfo.environment["MCP_OAUTH_ISSUER"]
                 ?? "http://localhost:\(port)"
 
-            let server = OAuthServer(storage: oauthStorage, issuer: issuer)
+            // Staging, deliberately, and the reason is written here rather than left to a
+            // release note. RFC 8707 validation is strict by default: a token request naming no
+            // `resource` is refused with `invalid_target`, and every client written before that
+            // names none. Accepting them keeps this server reachable while its clients are
+            // migrated to send one.
+            //
+            // Removing `allowsUnspecified` is the second half and a separate decision, because
+            // it changes who can connect rather than what this package depends on. Until then a
+            // token issued here is good at every resource, which is worth knowing.
+            // Validated: the issuer comes from the environment and becomes the audience tokens
+            // are bound to. An unusable one yields an empty known-set rather than a malformed
+            // entry, and is reported — a policy built around a value nobody can match would
+            // refuse every client for an invisible reason.
+            var known: Set<URL> = []
+            if let identifier = ServerStorageDirectory.resourceIdentifier(forIssuer: issuer) {
+                known.insert(identifier)
+            } else {
+                mcpLogger.error(
+                    "MCP_OAUTH_ISSUER is not an absolute http(s) URL; no resource identifier will be advertised for matching")
+            }
+            let policy = ResourceIndicatorPolicy(known: known, allowsUnspecified: true)
+            let server = OAuthServer(
+                storage: oauthStorage, issuer: issuer, resourcePolicy: policy)
             MCPServer.writeStderr("  OAuth 2.0: ENABLED (issuer: \(issuer))\n")
             return server
         } catch {

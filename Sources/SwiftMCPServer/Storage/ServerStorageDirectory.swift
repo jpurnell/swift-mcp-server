@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
+
+private let mcpStorageLogger = Logger(subsystem: "com.swiftmcp", category: "ServerStorageDirectory")
 
 /// Where a server keeps the data it owns: its OAuth database and its API key file.
 ///
@@ -44,6 +49,86 @@ public enum ServerStorageDirectory {
     public static func directory(forServerName serverName: String) -> URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
             "." + slug(for: serverName))
+    }
+
+    /// Creates the directory if needed and restricts it to its owner.
+    ///
+    /// Separating servers stops one reading another's credentials. It says nothing about
+    /// everything *else* on the host, and the default answer there is wrong: a directory created
+    /// without attributes is `0755`. Existing directories are tightened rather than left as
+    /// found, because the interesting case is the one already on disk from before this existed.
+    ///
+    /// Tightening rather than refusing is a deliberate difference from `VaultMCP`'s
+    /// `CredentialDirectory`, which refuses a loose directory outright so that whoever loosened
+    /// it is told. That is the stronger policy and the right one for a server that knows what it
+    /// is guarding. Here the directory is created by the package itself on a path the package
+    /// chose, so there is no third party to inform — and a library that refuses to start over a
+    /// permission it set itself last release helps nobody.
+    ///
+    /// - Parameter directory: The directory to prepare.
+    /// - Returns: The standardized directory.
+    /// - Throws: If the directory cannot be created or its permissions cannot be set.
+    @discardableResult
+    public static func prepare(_ directory: URL) throws -> URL {
+        let standardized = directory.standardized
+        try FileManager.default.createDirectory(
+            at: standardized, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700], ofItemAtPath: standardized.path)
+        return standardized
+    }
+
+    /// Restricts a credential file to its owner.
+    ///
+    /// The OAuth database is created by SQLite rather than by this package, and SQLite makes a
+    /// new file `0644` — which is how a shared `oauth.db` came to be world-readable while
+    /// holding live access tokens. It is therefore tightened after the fact, the same split the
+    /// key store already makes between the file it writes and the lock it opens.
+    ///
+    /// Absence is not an error: on a first run the database does not exist until something opens
+    /// it, and a server that refused to start over a file it had not created yet would be
+    /// reporting its own startup order as a fault.
+    ///
+    /// - Parameter file: The file to restrict.
+    public static func restrict(fileAt file: URL) {
+        let resolved = file.standardized
+        // Asked of the URL rather than of a string path, matching the key store's own probe.
+        // silent: a database that is not there yet is exactly what this is checking for
+        guard (try? resolved.checkResourceIsReachable()) == true else { return }
+        do {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: resolved.path)
+        } catch {
+            // Reported rather than thrown: the database is already open and working at this
+            // point, so failing the server here would trade a working server for a permission
+            // the operator can still fix. Silence is the one option that is not acceptable.
+            mcpStorageLogger.error(
+                "Could not restrict \(resolved.path, privacy: .public) to its owner: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The resource identifier a server publishes, as a URL, if the issuer is a usable one.
+    ///
+    /// `MCP_OAUTH_ISSUER` is read from the environment, so it is attacker-adjacent input in the
+    /// same way a server name is: it becomes the audience that tokens are bound to, and RFC 8707
+    /// compares client-sent resources against it. A relative string, a `file:` URL, or one with
+    /// no host cannot be any of those things, and quietly building a policy around it would
+    /// produce a server that refuses every client for a reason nobody could see.
+    ///
+    /// - Parameter issuer: The configured issuer string.
+    /// - Returns: The issuer as an absolute `http`/`https` URL, or `nil` if it is not one.
+    /// Built through `URLComponents` so the scheme and host are checked as parsed fields rather
+    /// than inferred from a string that happened to parse. Note what this value is *for*: it is
+    /// an identifier compared for exact equality under RFC 8707, and nothing ever fetches it, so
+    /// the question is whether it can name a service — not whether it is safe to request.
+    public static func resourceIdentifier(forIssuer issuer: String) -> URL? {
+        guard let components = URLComponents(string: issuer),
+            let scheme = components.scheme?.lowercased(),
+            scheme == "http" || scheme == "https",
+            let host = components.host, !host.isEmpty
+        else { return nil }
+        return components.url
     }
 
     /// Reduces a server name to a single lowercase hyphenated path component.

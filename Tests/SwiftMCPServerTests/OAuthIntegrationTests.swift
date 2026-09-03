@@ -12,7 +12,12 @@ struct OAuthIntegrationTests {
 
     static func makeOAuthServer() async throws -> OAuthServer {
         let storage = try OAuthStorage(path: ":memory:")
-        return OAuthServer(storage: storage, issuer: "http://localhost:8080")
+        return OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
     }
 
     // MARK: - HTTPServerTransport OAuth Configuration
@@ -52,7 +57,12 @@ struct OAuthIntegrationTests {
         func completeAuthorizationCodeFlow() async throws {
             // Create OAuth server and handler
             let storage = try OAuthStorage(path: ":memory:")
-            let server = OAuthServer(storage: storage, issuer: "http://localhost:8080")
+            let server = OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
             let handler = OAuthHTTPHandler(server: server)
 
             // Step 1: Register a client
@@ -134,7 +144,7 @@ struct OAuthIntegrationTests {
             let validationResult = await handler.validateBearerToken(authHeader: "Bearer \(tokens.accessToken)")
             #expect(validationResult.isValid)
 
-            if case .valid(let validatedClientId, let scope) = validationResult {
+            if case .valid(let validatedClientId, let scope, _) = validationResult {
                 #expect(validatedClientId == client.clientId)
                 #expect(scope == "mcp:tools")
             }
@@ -163,7 +173,12 @@ struct OAuthIntegrationTests {
         @Test("Public client flow without secret")
         func publicClientFlow() async throws {
             let storage = try OAuthStorage(path: ":memory:")
-            let server = OAuthServer(storage: storage, issuer: "http://localhost:8080")
+            let server = OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
             let handler = OAuthHTTPHandler(server: server)
 
             // Register a public client (no secret)
@@ -241,7 +256,12 @@ struct OAuthIntegrationTests {
         @Test("Supports mcp:tools scope")
         func supportsMcpToolsScope() async throws {
             let storage = try OAuthStorage(path: ":memory:")
-            let server = OAuthServer(storage: storage, issuer: "http://localhost:8080")
+            let server = OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
             let handler = OAuthHTTPHandler(server: server)
 
             // Register client and get token with scope
@@ -253,7 +273,7 @@ struct OAuthIntegrationTests {
             )
 
             let result = await handler.validateBearerToken(authHeader: "Bearer \(tokens.accessToken)")
-            if case .valid(_, let scope) = result {
+            if case .valid(_, let scope, _) = result {
                 #expect(scope == "mcp:tools")
             }
         }
@@ -261,7 +281,12 @@ struct OAuthIntegrationTests {
         @Test("Supports multiple MCP scopes")
         func supportsMultipleMcpScopes() async throws {
             let storage = try OAuthStorage(path: ":memory:")
-            let server = OAuthServer(storage: storage, issuer: "http://localhost:8080")
+            let server = OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
             let handler = OAuthHTTPHandler(server: server)
 
             let client = try await registerTestClient(handler: handler)
@@ -272,7 +297,7 @@ struct OAuthIntegrationTests {
             )
 
             let result = await handler.validateBearerToken(authHeader: "Bearer \(tokens.accessToken)")
-            if case .valid(_, let scope) = result {
+            if case .valid(_, let scope, _) = result {
                 #expect(scope?.contains("mcp:tools") == true)
                 #expect(scope?.contains("mcp:resources") == true)
             }
@@ -287,7 +312,12 @@ struct OAuthIntegrationTests {
         @Test("Metadata includes MCP scopes")
         func metadataIncludesMcpScopes() async throws {
             let storage = try OAuthStorage(path: ":memory:")
-            let server = OAuthServer(storage: storage, issuer: "http://localhost:8080")
+            let server = OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
             let handler = OAuthHTTPHandler(server: server)
 
             let response = await handler.handleMetadataRequest()
@@ -304,7 +334,12 @@ struct OAuthIntegrationTests {
         @Test("Metadata includes PKCE support")
         func metadataIncludesPkceSupport() async throws {
             let storage = try OAuthStorage(path: ":memory:")
-            let server = OAuthServer(storage: storage, issuer: "http://localhost:8080")
+            let server = OAuthServer(
+                storage: storage, issuer: "http://localhost:8080",
+                resourcePolicy: ResourceIndicatorPolicy(
+                    known: [URL(string: "http://localhost:8080")].compactMap { $0 }
+                        .reduce(into: Set<URL>()) { $0.insert($1) },
+                    allowsUnspecified: true))
             let handler = OAuthHTTPHandler(server: server)
 
             let response = await handler.handleMetadataRequest()

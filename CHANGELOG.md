@@ -2,6 +2,67 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-09-03
+
+### Changed
+- **`swift-oauth` moves from `0.7.1` to `0.11.0`**, taking four releases of authorization work
+  at once: RFC 8707 audience binding, RFC 7662 introspection, the RFC 8628 device grant, RFC
+  9126 PAR and RFC 9101 JAR.
+
+  This had been bounded below `0.8.0` since 2026-09-02 because 0.8.0 turns on resource-indicator
+  validation **strict by default** — a token request naming no `resource` is refused with
+  `invalid_target`, and every client written before that names none. Adopting the dependency and
+  refusing every existing client were the same action, so nothing moved and the releases piled up
+  behind the bound.
+
+  They are now separated. `setupOAuth` builds its policy with `allowsUnspecified: true`, the
+  documented staging path, so a request naming no resource is still served. Verified before
+  adopting rather than after: at `0.11.0` the suite fails with six refusals under the strict
+  default and passes with the permissive policy, which is the whole claim.
+
+  **A token issued by this server is currently valid at every resource.** Tightening to strict
+  is deliberately a separate change, because it alters who can connect rather than what this
+  package depends on, and it cannot happen until clients send a `resource`. `BearerChallenge`
+  in 0.11.0 reads the RFC 9728 `resource_metadata` pointer this server already publishes, which
+  is the recovery path for a client that gets refused.
+
+### Added
+- `ServerStorageDirectory.resourceIdentifier(forIssuer:)` — validates `MCP_OAUTH_ISSUER` into an
+  absolute `http`/`https` URL before it becomes the audience tokens are bound to. An unusable
+  issuer yields an empty known-set and is logged, rather than a malformed entry that would refuse
+  every client for a reason invisible in any response. A trailing slash makes a *different*
+  identifier, because RFC 8707 matching is exact.
+
+## [3.1.0] - 2026-09-03
+
+### Fixed
+- **The credential directory and the OAuth database were world-readable.** 3.0.0 gave each
+  server its own directory and stopped there, which fixed servers reading *each other's*
+  credentials and did nothing about everything else on the host. A directory created without
+  attributes is `0755` and SQLite creates a new database `0644` — so 3.0.0 would have carried
+  the same exposure into four directories instead of one.
+
+  This was measured, not inferred. On the machine it was found on:
+
+      drwxr-xr-x  ~/.businessmath-mcp
+      -rw-------  ~/.businessmath-mcp/api-keys.json
+      -rw-r--r--  ~/.businessmath-mcp/oauth.db      <- live access tokens
+
+  The key file was already `0600`; the token database never was. The directory is now created
+  `0700` and tightened if it already exists, and the database is restricted to `0600` after
+  SQLite opens it. Both are tested, and the tests were mutation-checked — loosening the modes to
+  `0755`/`0644` fails them.
+
+  Credit where it is due: `VaultMCP` diagnosed this on 2026-09-01 and hardened its own directory,
+  noting that a shared `oauth.db` "came to be world-readable while holding 248 access tokens".
+  This is that finding applied to the package, so no consumer has to repeat it.
+
+### Note
+Tightening, not refusing. `VaultMCP.CredentialDirectory` refuses a loose directory outright so
+whoever loosened it is told, which is the stronger policy for a server that knows what it
+guards. A library creating a directory on a path it chose has no third party to inform, and one
+that refused to start over a permission it set itself last release would help nobody.
+
 ## [3.0.0] - 2026-09-03
 
 ### Fixed

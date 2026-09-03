@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+#if canImport(Darwin)
+import Darwin
+#endif
 
 @testable import SwiftMCPServer
 
@@ -129,5 +132,146 @@ struct ServerStorageDirectoryTests {
             ServerStorageDirectory.directory(forServerName: "BusinessMath MCP").standardized
                 == ServerStorageDirectory.legacySharedDirectory.standardized,
             "no reserved-name special case; the warning covers the stale-data risk")
+    }
+}
+
+/// What the directory and the database are readable by.
+///
+/// Separating servers stops one reading another's credentials. It does nothing about everything
+/// else on the host, and the default answer there was wrong: a directory created without
+/// attributes is `0755`, and SQLite creates a new database `0644`. On the machine this was found
+/// on, `~/.businessmath-mcp/oauth.db` was `-rw-r--r--` while holding live access tokens.
+///
+/// So the fix is two halves. `ServerStorageDirectoryTests` above covers the first — whose
+/// directory it is. This covers the second — who can read it.
+@Suite("Server storage permissions")
+struct ServerStoragePermissionTests {
+
+    /// Reads the mode with one `stat`, the way `VaultMCP.CredentialDirectory` does.
+    ///
+    /// `FileManager.attributesOfItem(atPath:)` would mean handing a string path to the file
+    /// system and boxing the answer through a dictionary, for a number the kernel already has.
+    private func mode(of url: URL) throws -> Int {
+        var info = stat()
+        let result = url.standardized.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return stat(path, &info)
+        }
+        try #require(result == 0, "could not stat \(url.lastPathComponent)")
+        return Int(info.st_mode) & 0o777
+    }
+
+    private func temporaryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ssd-\(UUID().uuidString)")
+    }
+
+    @Test("A prepared directory is reachable only by its owner")
+    func testDirectoryIsOwnerOnly() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) } // silent: test cleanup
+
+        let prepared = try ServerStorageDirectory.prepare(directory)
+        #expect(try mode(of: prepared) == 0o700, "0755 would let anything on the host list it")
+    }
+
+    /// Preparing an existing directory tightens it, because the interesting case is the one
+    /// already on disk at 0755 from before this existed.
+    @Test("An existing loose directory is tightened rather than left alone")
+    func testExistingDirectoryIsTightened() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) } // silent: test cleanup
+
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755])
+        #expect(try mode(of: directory) == 0o755)
+
+        let prepared = try ServerStorageDirectory.prepare(directory)
+        #expect(try mode(of: prepared) == 0o700, "an upgrade must fix what it inherits")
+    }
+
+    /// The database is created by SQLite, not by this package, so it is tightened after the fact
+    /// rather than created correctly — the same split the key store already makes.
+    @Test("A database file is restricted to its owner")
+    func testDatabaseFileIsRestricted() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) } // silent: test cleanup
+        let prepared = try ServerStorageDirectory.prepare(directory)
+
+        // Written through the URL and then loosened, standing in for what SQLite leaves behind.
+        let database = prepared.appendingPathComponent("oauth.db")
+        try Data("not really sqlite".utf8).write(to: database)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644], ofItemAtPath: database.standardized.path)
+        #expect(try mode(of: database) == 0o644, "this is what SQLite would have left")
+
+        ServerStorageDirectory.restrict(fileAt: database)
+        #expect(try mode(of: database) == 0o600, "access tokens are not world-readable")
+    }
+
+    /// Restricting something absent is the ordinary case on a first run and must not throw.
+    ///
+    /// It must also not *create* the thing it was asked to restrict: a zero-byte `oauth.db`
+    /// left behind by a permission call would be indistinguishable from an empty database and
+    /// would stop SQLite initialising a real one.
+    @Test("Restricting a file that does not exist neither throws nor creates it")
+    func testRestrictingMissingFileIsSilent() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) } // silent: test cleanup
+        let prepared = try ServerStorageDirectory.prepare(directory)
+        let absent = prepared.appendingPathComponent("absent.db")
+
+        ServerStorageDirectory.restrict(fileAt: absent)
+
+        #expect(
+            (try? absent.checkResourceIsReachable()) != true,
+            "restricting a missing file must not bring it into existence")
+        #expect(try mode(of: prepared) == 0o700, "and must leave the directory as it found it")
+    }
+}
+
+/// The issuer becomes the audience tokens are bound to, and it comes from the environment.
+@Suite("Resource identifier from issuer")
+struct ResourceIdentifierTests {
+
+    @Test("An absolute http(s) issuer is usable", arguments: [
+        "http://localhost:8080",
+        "https://mcp.example.com",
+        "https://mcp.example.com/",
+    ])
+    func testUsableIssuers(issuer: String) throws {
+        let identifier = try #require(ServerStorageDirectory.resourceIdentifier(forIssuer: issuer))
+        #expect(identifier.absoluteString == issuer)
+    }
+
+    /// Anything that cannot be an audience is refused rather than half-accepted. A policy built
+    /// around one of these would refuse every client, for a reason not visible in any response.
+    @Test("Anything that cannot name a service is refused", arguments: [
+        "",
+        "   ",
+        "not a url",
+        "/relative/path",
+        "file:///etc/passwd",
+        "https://",
+        "ftp://example.com",
+        "mcp.example.com",
+    ])
+    func testUnusableIssuers(issuer: String) {
+        #expect(
+            ServerStorageDirectory.resourceIdentifier(forIssuer: issuer) == nil,
+            "\(issuer) cannot be an audience and must not become one")
+    }
+
+    /// A trailing slash makes a different identifier, which is the drift that matters here —
+    /// RFC 8707 matching is exact, so the value advertised and the value configured must agree
+    /// character for character.
+    @Test("A trailing slash is a different identifier")
+    func testTrailingSlashDiffers() throws {
+        let bare = try #require(
+            ServerStorageDirectory.resourceIdentifier(forIssuer: "https://mcp.example.com"))
+        let slashed = try #require(
+            ServerStorageDirectory.resourceIdentifier(forIssuer: "https://mcp.example.com/"))
+        #expect(bare != slashed, "exact matching means these are not interchangeable")
     }
 }
