@@ -132,11 +132,11 @@ public struct APIKeySummary: Sendable {
 
 /// Actor for managing persistent API keys
 ///
-/// Stores keys in `~/.businessmath-mcp/api-keys.json` by default.
+/// Stores keys in the directory the server owns — see ``ServerStorageDirectory``.
 ///
 /// ## Example
 /// ```swift
-/// let store = APIKeyStore()
+/// let store = APIKeyStore(serverName: "My MCP Server")
 /// let key = try await store.generateKey(name: "Claude Code")
 /// print(key.key)  // Use this in Authorization header
 /// ```
@@ -164,10 +164,15 @@ public actor APIKeyStore {
 
     // MARK: - Initialization
 
-    /// Creates a key store with the default directory (~/.businessmath-mcp)
-    public init() {
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        self.directory = homeDir.appendingPathComponent(".businessmath-mcp")
+    /// Creates a key store in the directory a server of this name owns.
+    ///
+    /// Previously this defaulted to `~/.businessmath-mcp` regardless of who was asking, so every
+    /// server built on this package shared one key file and a key generated for one authenticated
+    /// against all of them. The name now decides the directory; see ``ServerStorageDirectory``.
+    ///
+    /// - Parameter serverName: The server's configured name.
+    public init(serverName: String) {
+        self.directory = ServerStorageDirectory.directory(forServerName: serverName)
     }
 
     /// Creates a key store with a custom directory

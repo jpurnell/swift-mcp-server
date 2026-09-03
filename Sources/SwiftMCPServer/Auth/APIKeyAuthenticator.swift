@@ -14,7 +14,7 @@ import os
 /// ## Usage
 ///
 /// ```swift
-/// let store = APIKeyStore()
+/// let store = APIKeyStore(serverName: "My MCP Server")
 /// let auth = APIKeyAuthenticator(keyStore: store)
 /// let isValid = await auth.validate(authHeader: "Bearer bm_xxx...")
 /// ```

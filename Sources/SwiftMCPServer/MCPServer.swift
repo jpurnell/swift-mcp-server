@@ -185,6 +185,10 @@ public struct MCPServerConfiguration: Sendable {
     public let promptProvider: (any MCPPromptProvider)?
     /// Read-only HTTP endpoints served alongside the protocol routes.
     public let httpRoutes: [MCPHTTPRoute]
+    /// Directory holding the data this server owns: its OAuth database and its API key file.
+    ///
+    /// Derived from ``serverName`` unless set explicitly. See ``ServerStorageDirectory``.
+    public let storageDirectory: URL
 }
 
 // MARK: - MCPServerBuilder
@@ -217,6 +221,7 @@ public final class MCPServerBuilder: @unchecked Sendable {
     private var _resourceProvider: (any MCPResourceProvider)? = nil
     private var _promptProvider: (any MCPPromptProvider)? = nil
     private var _httpRoutes: [MCPHTTPRoute] = []
+    private var _storageDirectory: URL? = nil
 
     /// Set the server name.
     @discardableResult
@@ -303,6 +308,19 @@ public final class MCPServerBuilder: @unchecked Sendable {
         return self
     }
 
+    /// Pin the directory holding this server's OAuth database and API key file.
+    ///
+    /// Defaults to a directory derived from the server's name, which keeps each server's
+    /// credentials separate without anyone having to configure it. Set this to survive a rename,
+    /// or to place the data somewhere other than the user's home directory.
+    ///
+    /// - Parameter directory: Directory to store this server's data in.
+    @discardableResult
+    public func storageDirectory(_ directory: URL) -> MCPServerBuilder {
+        _storageDirectory = directory
+        return self
+    }
+
     /// Build an immutable configuration from the current builder state.
     public func buildConfiguration() -> MCPServerConfiguration {
         return MCPServerConfiguration(
@@ -318,7 +336,9 @@ public final class MCPServerBuilder: @unchecked Sendable {
             toolHandlers: _toolHandlers,
             resourceProvider: _resourceProvider,
             promptProvider: _promptProvider,
-            httpRoutes: _httpRoutes
+            httpRoutes: _httpRoutes,
+            storageDirectory: _storageDirectory
+                ?? ServerStorageDirectory.directory(forServerName: _serverName)
         )
     }
 
@@ -361,14 +381,16 @@ public final class MCPServerBuilder: @unchecked Sendable {
             MCPServer.printHelp(serverName: config.serverName)
             return
         case .generateKey:
-            try await MCPServer.handleGenerateKey(name: args.keyName)
+            try await MCPServer.handleGenerateKey(
+                name: args.keyName, storageDirectory: config.storageDirectory)
             return
         case .listKeys:
-            await MCPServer.handleListKeys()
+            await MCPServer.handleListKeys(storageDirectory: config.storageDirectory)
             return
         case .revokeKey:
             if let prefix = args.keyPrefix {
-                try await MCPServer.handleRevokeKey(prefix: prefix)
+                try await MCPServer.handleRevokeKey(
+                    prefix: prefix, storageDirectory: config.storageDirectory)
             }
             return
         case .server:
@@ -540,17 +562,20 @@ public final class MCPServerBuilder: @unchecked Sendable {
         var oauthServer = config.oauthServer
 
         if authenticator == nil {
-            authenticator = await setupAPIKeyAuth(existingOAuth: oauthServer)
+            authenticator = await setupAPIKeyAuth(
+                existingOAuth: oauthServer, storageDirectory: config.storageDirectory)
         }
 
         if oauthServer == nil {
-            oauthServer = setupOAuth(port: port)
+            oauthServer = setupOAuth(port: port, storageDirectory: config.storageDirectory)
         }
 
         return (authenticator, oauthServer)
     }
 
-    private func setupAPIKeyAuth(existingOAuth: OAuthServer?) async -> APIKeyAuthenticator? {
+    private func setupAPIKeyAuth(
+        existingOAuth: OAuthServer?, storageDirectory: URL
+    ) async -> APIKeyAuthenticator? {
         let envKeysString = ProcessInfo.processInfo.environment["MCP_API_KEYS"] ?? ""
         let envKeys = envKeysString
             .split(separator: ",")
@@ -559,7 +584,7 @@ public final class MCPServerBuilder: @unchecked Sendable {
 
         let authRequired = ProcessInfo.processInfo.environment["MCP_AUTH_REQUIRED"] != "false"
 
-        let keyStore = APIKeyStore()
+        let keyStore = APIKeyStore(directory: storageDirectory)
         let storedKeyCount = await keyStore.keyCount()
         if storedKeyCount > 0 {
             MCPServer.writeStderr("  Loaded \(storedKeyCount) API key(s) from persistent store\n")
@@ -582,7 +607,7 @@ public final class MCPServerBuilder: @unchecked Sendable {
         return auth
     }
 
-    private func setupOAuth(port: UInt16) -> OAuthServer? {
+    private func setupOAuth(port: UInt16, storageDirectory: URL) -> OAuthServer? {
         let oauthEnabled = ProcessInfo.processInfo.environment["MCP_OAUTH_ENABLED"] == "true"
         guard oauthEnabled else {
             MCPServer.writeStderr("  OAuth 2.0: DISABLED\n")
@@ -590,11 +615,14 @@ public final class MCPServerBuilder: @unchecked Sendable {
         }
 
         do {
-            let homeDir = FileManager.default.homeDirectoryForCurrentUser
-            let oauthDir = homeDir.appendingPathComponent(".businessmath-mcp")
-            try FileManager.default.createDirectory(at: oauthDir, withIntermediateDirectories: true)
+            // Resolved before use: the directory can come from `storageDirectory(_:)`, which
+            // accepts any URL a caller supplies.
+            let directory = storageDirectory.standardized
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            MCPServer.warnIfLegacyStorageExists(inUse: directory)
 
-            let oauthDbPath = oauthDir.appendingPathComponent("oauth.db").path
+            let oauthDbPath = directory.appendingPathComponent("oauth.db").path
             let oauthStorage = try OAuthStorage(path: oauthDbPath)
 
             let issuer = ProcessInfo.processInfo.environment["MCP_OAUTH_ISSUER"]
@@ -616,15 +644,52 @@ public final class MCPServerBuilder: @unchecked Sendable {
 
 extension MCPServer {
 
+    /// Reports the abandoned shared directory when it is still on disk.
+    ///
+    /// Every server built on this package used to write into `~/.businessmath-mcp`, so an
+    /// upgrade silently repoints a server at an empty directory: its keys and tokens appear to
+    /// have vanished. They have not, and this says where they went.
+    ///
+    /// It deliberately does not move anything. The old directory holds credentials commingled
+    /// from every server that ever ran, so there is no single server it can be handed to —
+    /// copying it into each would duplicate live keys into several places, where revoking one
+    /// would leave the others working.
+    ///
+    /// - Parameter directory: The directory this server is actually using.
+    static func warnIfLegacyStorageExists(inUse directory: URL) {
+        // Standardized before it reaches the filesystem: `directory` is public API taking an
+        // arbitrary URL, so both sides of the comparison and the probe below are resolved forms
+        // rather than whatever the caller wrote.
+        let legacy = ServerStorageDirectory.legacySharedDirectory.standardized
+        let inUse = directory.standardized
+        guard legacy != inUse else { return }
+
+        // Asked of the URL rather than of a string path, matching how the key store probes its
+        // own file. A missing directory is the ordinary case — most installations will never
+        // have had one — so absence is the answer, not an error to report.
+        // silent: a directory that is not there is exactly what this is checking for
+        guard (try? legacy.checkResourceIsReachable()) == true else { return }
+
+        writeStderr(
+            """
+              NOTE: \(legacy.path) still exists. Servers used to share it; this one now
+                    uses \(inUse.path). Nothing was moved — the old directory may hold
+                    credentials belonging to several servers, so copying them would put live
+                    keys in more than one place. Move what this server needs, then remove
+                    the rest.
+
+            """)
+    }
+
     /// Thread-safe stderr writer
     static func writeStderr(_ message: String) {
         FileHandle.standardError.write(Data(message.utf8))
     }
 
     /// Handle --generate-key
-    static func handleGenerateKey(name: String?) async throws {
+    static func handleGenerateKey(name: String?, storageDirectory: URL) async throws {
         let keyName = name ?? "API Key \(Date().formatted(.dateTime))"
-        let store = APIKeyStore()
+        let store = APIKeyStore(directory: storageDirectory)
         let key = try await store.generateKey(name: keyName)
         writeStderr("""
         Generated API key for "\(keyName)":
@@ -637,8 +702,8 @@ extension MCPServer {
     }
 
     /// Handle --list-keys
-    static func handleListKeys() async {
-        let store = APIKeyStore()
+    static func handleListKeys(storageDirectory: URL) async {
+        let store = APIKeyStore(directory: storageDirectory)
         let summaries = await store.listKeySummaries()
 
         if summaries.isEmpty {
@@ -658,8 +723,8 @@ extension MCPServer {
     }
 
     /// Handle --revoke-key
-    static func handleRevokeKey(prefix: String) async throws {
-        let store = APIKeyStore()
+    static func handleRevokeKey(prefix: String, storageDirectory: URL) async throws {
+        let store = APIKeyStore(directory: storageDirectory)
         let revoked = try await store.revokeKey(prefix: prefix)
         if revoked {
             writeStderr("Key revoked successfully.\n")

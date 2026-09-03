@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-03
+
+### Fixed
+- **Every server built on this package shared one credential store.** The OAuth database and the
+  API key file were both hardcoded to `~/.businessmath-mcp/` — a directory named after a
+  different project — with no way to override the first of them. Four servers therefore shared
+  one `api-keys.json` and one `oauth.db`, so a key generated for one authenticated against all of
+  them, and tokens issued by different issuers sat in a single table that records no audience.
+
+  This was not theoretical. `VaultMCP` had already found it and worked around it locally, and its
+  note records the production shape: three of four servers on one host, where "a token issued for
+  a documentation server is equally valid at this one's `--tier restricted` writer."
+
+  The directory is now derived from the server's own name — `~/.geoseo-mcp-server/`,
+  `~/.vaultmcp/` — which is the one identifier each server already sets distinctly, so the fix
+  needs no configuration to take effect. ``MCPServerBuilder/storageDirectory(_:)`` overrides it.
+
+  The name reaches the filesystem, so it is reduced to a single `[a-z0-9-]` component at that
+  boundary: `../../.ssh` and `/etc/passwd` are inert rather than traversals, and a name with
+  nothing usable in it falls back rather than resolving to the home directory itself.
+
+### Changed
+- **`APIKeyStore()` is now `APIKeyStore(serverName:)`.** *Source break.* The no-argument
+  initialiser silently chose the shared directory, which is the defect above; there is no
+  correct default for it to have. `APIKeyStore(directory:)` is unchanged, so a consumer already
+  passing a directory — as `VaultMCP` does — needs no change.
+- The CLI key commands (`--generate-key`, `--list-keys`, `--revoke-key`) now resolve the same
+  directory as the running server. They previously always used the shared one, so with a
+  per-server directory they would otherwise write keys where that server would never read them.
+
+### Migration
+Nothing is moved. A server started after this change looks in a new, empty directory and reports
+the old one if it is still present:
+
+    NOTE: /Users/you/.businessmath-mcp still exists. Servers used to share it; this one now
+          uses /Users/you/.geoseo-mcp-server. Nothing was moved — ...
+
+Moving it automatically is not possible in principle: the old directory holds credentials
+commingled from every server that ever ran, so there is no single server it belongs to, and
+copying it into each would put live keys in several places where revoking one would leave the
+others working. Move what each server needs, then remove the rest.
+
 ## [2.0.2] - 2026-09-03
 
 ### Changed
