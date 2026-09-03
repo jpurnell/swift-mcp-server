@@ -34,7 +34,14 @@ let package = Package(
         // `allowsUnspecified: true` — the documented staging path — which takes the audience
         // binding, introspection, the device grant, PAR and JAR without changing who can
         // connect. Tightening to strict is a separate step, once clients send a resource.
-        .package(url: "https://github.com/jpurnell/swift-oauth.git", from: "0.11.0"),
+        //
+        // Bounded below 0.12.0, and the open `from:` that used to sit here was a mistake worth
+        // naming: 0.12.0 reshapes `TokenValidationResult.valid` into a struct, so an open range
+        // would have taken a breaking change on the next resolve — at whatever moment someone
+        // ran `swift package update`, with a compile error in a file nobody had touched. The
+        // upper bound is not caution about 0.x; it is the version this package has actually
+        // been verified against.
+        .package(url: "https://github.com/jpurnell/swift-oauth.git", "0.12.0"..<"0.13.0"),
         // MCP SDK, upstream. The jpurnell fork this used to point at existed for one
         // 15-line SendOnce concurrency patch on 0.11.0; upstream 0.12.1 builds clean under
         // Swift 6.4 with StrictConcurrency, so the patch — and the "..<0.12.0" cap that

@@ -144,9 +144,9 @@ struct OAuthIntegrationTests {
             let validationResult = await handler.validateBearerToken(authHeader: "Bearer \(tokens.accessToken)")
             #expect(validationResult.isValid)
 
-            if case .valid(let validatedClientId, let scope, _) = validationResult {
-                #expect(validatedClientId == client.clientId)
-                #expect(scope == "mcp:tools")
+            if case .valid(let token) = validationResult {
+                #expect(token.clientId == client.clientId)
+                #expect(token.scope == "mcp:tools")
             }
 
             // Step 5: Refresh the token
@@ -273,8 +273,8 @@ struct OAuthIntegrationTests {
             )
 
             let result = await handler.validateBearerToken(authHeader: "Bearer \(tokens.accessToken)")
-            if case .valid(_, let scope, _) = result {
-                #expect(scope == "mcp:tools")
+            if case .valid(let token) = result {
+                #expect(token.scope == "mcp:tools")
             }
         }
 
@@ -297,9 +297,9 @@ struct OAuthIntegrationTests {
             )
 
             let result = await handler.validateBearerToken(authHeader: "Bearer \(tokens.accessToken)")
-            if case .valid(_, let scope, _) = result {
-                #expect(scope?.contains("mcp:tools") == true)
-                #expect(scope?.contains("mcp:resources") == true)
+            if case .valid(let token) = result {
+                #expect(token.scope?.contains("mcp:tools") == true)
+                #expect(token.scope?.contains("mcp:resources") == true)
             }
         }
     }

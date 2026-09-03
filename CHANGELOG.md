@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-03
+
+### Changed
+- **`swift-oauth` moves to `0.12.0`**, adding RFC 9449 DPoP: sender-constrained tokens, proof
+  verification and replay protection.
+
+  `TokenValidationResult.valid` now carries a single `ValidatedToken` rather than a list of
+  associated values, which is a source break. Three sites here, all in
+  `OAuthIntegrationTests`, all mechanical: `.valid(a, b, _)` becomes `.valid(let token)` with
+  `token.clientId` and `token.scope`. Worth taking — that case had been widened twice in four
+  releases and each widening broke every exhaustive match in every consumer, including those with
+  no interest in the feature causing it. Adding a property to a struct breaks nobody, and pre-1.0
+  is the only cheap moment to stop the recurrence.
+
+- **The bound moves to `"0.12.0"..<"0.13.0"`** rather than reopening to `from:`. 3.2.0 shipped
+  with `from: "0.11.0"`, which admitted this very release — an open lower bound on a 0.x
+  dependency is a standing promise to adopt breaking changes unattended, and would have produced
+  a compile error in a file nobody had touched at whatever moment someone ran
+  `swift package update`.
+
+### Fixed
+- **A DPoP-bound token can no longer be accepted as a bearer token.** `MCPServerHandler` accepts
+  any `Bearer`-prefixed header and validates it, which is the correct path for an unbound token
+  and a silent hole for a bound one: accepting it without a proof discards the binding, and the
+  token behaves exactly like the bearer token it was meant to stop being. Nothing in this
+  package's sources mentions DPoP, so nobody would have thought to look here.
+
+  Fixed upstream at this package's request rather than worked around locally:
+  `validateBearerToken` now refuses a token carrying a key thumbprint outright, with a reason
+  naming the DPoP scheme. The bearer path is correct without changing, and no other consumer has
+  to know the trap exists. Verified by reading 0.12.0 rather than taking the report on trust.
+
+### Note — resource indicators stay permissive
+`allowsUnspecified: true` remains, deliberately, until there is a `1.0.0` beta candidate to
+migrate clients against. Strict changes who can connect, and every release between here and 1.0.0
+still moves the surface those clients talk to, so flipping now risks migrating clients twice.
+A token issued by this server is still valid at every resource.
+
 ## [3.2.0] - 2026-09-03
 
 ### Changed
