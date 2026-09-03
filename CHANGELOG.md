@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-09-03
+
+### Changed
+- **`swift-oauth` is bounded below `0.8.0`** rather than taken openly. That release turns on
+  RFC 8707 resource-indicator validation in `SwiftOAuthProvider`, strict by default: a token
+  request naming no `resource` is refused with `invalid_target`. This package sets no resource
+  indicator anywhere, so an open range would have delivered that on the next routine resolve —
+  a server rejecting requests it accepts today, with no local change to point at.
+
+  The bound is not a judgement on the change, which is the right default for an authorization
+  server. It makes adopting it a decision, so the migration lands in the same commit as the
+  bump.
+
+- **The manifest no longer describes `swift-oauth` as a squashed export of a private
+  repository.** The two were consolidated: the export is archived and this URL is now the
+  development repository itself, public with full history.
+
 ## [2.0.1] - 2026-09-02
 
 ### Fixed
