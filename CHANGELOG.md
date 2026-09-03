@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-09-02
+
+### Fixed
+- **`Package.resolved` pinned a commit that no longer exists.** The SwiftOAuth pair was
+  consolidated into one repository and tag `0.7.1` moved from the squashed export commit to the
+  merged full-history one, so 2.0.0 resolves `swift-oauth` to a revision the remote answers
+  `not our ref` for. Re-pinned; nothing else changed.
+
+  Two things made this hard to catch, both worth knowing. A clone **on a machine that had
+  already resolved the old commit still builds**, because SwiftPM reuses its cached copy of the
+  repository — verifying a published package from a same-machine clone therefore proves less
+  than it appears to, and `swift package --cache-path <fresh> resolve` is the honest test.
+  Second, once the cache is cold the error is not a missing commit but a *fingerprint mismatch*:
+  SwiftPM records tag-to-SHA on first use and refuses a tag that later points somewhere else.
+  That is a deliberate defence against tag rewriting, and clearing
+  `~/.swiftpm/security/fingerprints` is the only way past it.
+
 ## [2.0.0] - 2026-09-02
 
 **MCP `2026-07-28`.** Conformance verified against
