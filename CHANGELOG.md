@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-09-04
+
+### Added
+- **`MCPServer.mcpScopes` is public.** A consumer that constructs its own `OAuthServer` — as
+  `VaultMCP` does, bypassing this package's OAuth path entirely — must supply the same scope
+  list, and while it was `internal` the only way to do that was to write the literal out again.
+  Two copies of a scope list is the drift that put `mcp:` scopes inside a general-purpose OAuth
+  library to begin with. Found by flipping `VaultMCP` and failing to compile, which is the right
+  way to find it.
+
+## [4.0.0] - 2026-09-04
+
+### Changed — strict resource indicators (breaking, at runtime)
+- **Every token this server issues is now bound to an audience.** RFC 8707 validation is strict:
+  a request naming no `resource` is refused with `invalid_target`, so a token minted here is not
+  usable at any other service. `allowsUnspecified` is gone from the configuration.
+
+  **This changes who can connect.** A client that does not send `resource` is refused, and the
+  refusal appears at this server rather than at whoever wrote the client. That is the point of
+  the change and it is the whole of its cost.
+
+  **It is three requests, not one** — authorization, token exchange, *and refresh*. The third is
+  the one that costs a day: the first two go green, the migration reads as finished, and
+  `grant_type=refresh_token` fails later against a correct error. Flip against a test that
+  refreshes, not one that only obtains.
+
+- **`swift-oauth` moves to `1.0.0-beta.3`**, pinned exactly because SwiftPM ranges do not select
+  prereleases. Staged permissive since 2026-09-03 so clients were migrated once, against a
+  version that would stay put, rather than twice against a moving one.
+
+### Added
+- **`ConsentRoundTripTests`** — renders the consent page, submits **only the fields it
+  contained**, and asserts a code comes back. Every other test here posts consent fields
+  directly, which is what a test client does and not what a browser does: a value the
+  authorization request carried and the page failed to render is silently dropped, and under a
+  strict policy that surfaces as `invalid_target` at a step the client did nothing wrong at.
+
+  It was written to prove an upstream fix and it found one: against `1.0.0-beta.2` the build
+  reports 0 errors and the test fails on all three assertions. **Re-run that negative control if
+  the test is ever changed** — a round-trip test that has never been seen to fail is decoration.
+
 ## [3.3.2] - 2026-09-03
 
 ### Security

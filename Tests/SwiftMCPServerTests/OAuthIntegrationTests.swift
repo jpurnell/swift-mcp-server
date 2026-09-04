@@ -14,10 +14,12 @@ struct OAuthIntegrationTests {
         let storage = try OAuthStorage(path: ":memory:")
         return OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
     }
 
     // MARK: - HTTPServerTransport OAuth Configuration
@@ -59,10 +61,12 @@ struct OAuthIntegrationTests {
             let storage = try OAuthStorage(path: ":memory:")
             let server = OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
             let handler = OAuthHTTPHandler(server: server)
 
             // Step 1: Register a client
@@ -94,7 +98,8 @@ struct OAuthIntegrationTests {
                 "redirect_uri": "http://localhost/callback",
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
-                "scope": "mcp:tools"
+                "scope": "mcp:tools",
+                "resource": "http://localhost:8080"
             ]
 
             // Get consent page
@@ -111,7 +116,8 @@ struct OAuthIntegrationTests {
                 "csrf_token": csrfToken,
                 "scope": "mcp:tools",
                 "code_challenge": challenge,
-                "code_challenge_method": "S256"
+                "code_challenge_method": "S256",
+                "resource": "http://localhost:8080"
             ]
 
             let authResponse = await handler.handleConsentSubmission(formParams: consentParams)
@@ -128,7 +134,8 @@ struct OAuthIntegrationTests {
                 "redirect_uri": "http://localhost/callback",
                 "client_id": client.clientId,
                 "client_secret": secret,
-                "code_verifier": verifier
+                "code_verifier": verifier,
+                "resource": "http://localhost:8080"
             ])
 
             let tokenResponse = await handler.handleTokenRequest(body: tokenBody, authHeader: nil)
@@ -154,7 +161,10 @@ struct OAuthIntegrationTests {
                 "grant_type": "refresh_token",
                 "refresh_token": try #require(tokens.refreshToken),
                 "client_id": client.clientId,
-                "client_secret": try #require(client.clientSecret)
+                "client_secret": try #require(client.clientSecret),
+                // RFC 8707 §2.2: a refresh names the audience too, and under a strict policy
+                // omitting it is refused just as it is on the initial exchange.
+                "resource": "http://localhost:8080"
             ])
 
             let refreshResponse = await handler.handleTokenRequest(body: refreshBody, authHeader: nil)
@@ -175,10 +185,12 @@ struct OAuthIntegrationTests {
             let storage = try OAuthStorage(path: ":memory:")
             let server = OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
             let handler = OAuthHTTPHandler(server: server)
 
             // Register a public client (no secret)
@@ -206,7 +218,8 @@ struct OAuthIntegrationTests {
                 "client_id": client.clientId,
                 "redirect_uri": "http://localhost/callback",
                 "code_challenge": challenge,
-                "code_challenge_method": "S256"
+                "code_challenge_method": "S256",
+                "resource": "http://localhost:8080"
             ]
 
             // Get consent page
@@ -222,7 +235,8 @@ struct OAuthIntegrationTests {
                 "redirect_uri": "http://localhost/callback",
                 "csrf_token": csrfToken,
                 "code_challenge": challenge,
-                "code_challenge_method": "S256"
+                "code_challenge_method": "S256",
+                "resource": "http://localhost:8080"
             ]
 
             let authResponse = await handler.handleConsentSubmission(formParams: consentParams)
@@ -237,7 +251,8 @@ struct OAuthIntegrationTests {
                 "code": code,
                 "redirect_uri": "http://localhost/callback",
                 "client_id": client.clientId,
-                "code_verifier": verifier
+                "code_verifier": verifier,
+                "resource": "http://localhost:8080"
             ])
 
             let tokenResponse = await handler.handleTokenRequest(body: tokenBody, authHeader: nil)
@@ -258,10 +273,12 @@ struct OAuthIntegrationTests {
             let storage = try OAuthStorage(path: ":memory:")
             let server = OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
             let handler = OAuthHTTPHandler(server: server)
 
             // Register client and get token with scope
@@ -283,10 +300,12 @@ struct OAuthIntegrationTests {
             let storage = try OAuthStorage(path: ":memory:")
             let server = OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
             let handler = OAuthHTTPHandler(server: server)
 
             let client = try await registerTestClient(handler: handler)
@@ -314,10 +333,12 @@ struct OAuthIntegrationTests {
             let storage = try OAuthStorage(path: ":memory:")
             let server = OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
             let handler = OAuthHTTPHandler(server: server)
 
             let response = await handler.handleMetadataRequest()
@@ -336,10 +357,12 @@ struct OAuthIntegrationTests {
             let storage = try OAuthStorage(path: ":memory:")
             let server = OAuthServer(
                 storage: storage, issuer: "http://localhost:8080",
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated,
                 resourcePolicy: ResourceIndicatorPolicy(
                     known: [URL(string: "http://localhost:8080")].compactMap { $0 }
                         .reduce(into: Set<URL>()) { $0.insert($1) },
-                    allowsUnspecified: true))
+                    allowsUnspecified: false))
             let handler = OAuthHTTPHandler(server: server)
 
             let response = await handler.handleMetadataRequest()
@@ -404,7 +427,8 @@ struct OAuthIntegrationTests {
             "redirect_uri": "http://localhost/callback",
             "code_challenge": challenge,
             "code_challenge_method": "S256",
-            "scope": scope
+            "scope": scope,
+            "resource": "http://localhost:8080"
         ]
 
         // Step 1: Get consent page
@@ -423,7 +447,8 @@ struct OAuthIntegrationTests {
             "csrf_token": csrfToken,
             "scope": scope,
             "code_challenge": challenge,
-            "code_challenge_method": "S256"
+            "code_challenge_method": "S256",
+            "resource": "http://localhost:8080"
         ]
 
         let authResponse = await handler.handleConsentSubmission(formParams: consentParams)

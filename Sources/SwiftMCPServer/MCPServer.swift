@@ -648,9 +648,11 @@ public final class MCPServerBuilder: @unchecked Sendable {
                 mcpLogger.error(
                     "MCP_OAUTH_ISSUER is not an absolute http(s) URL; no resource identifier will be advertised for matching")
             }
-            let policy = ResourceIndicatorPolicy(known: known, allowsUnspecified: true)
+            let policy = ResourceIndicatorPolicy(known: known)
             let server = OAuthServer(
-                storage: oauthStorage, issuer: issuer, resourcePolicy: policy)
+                storage: oauthStorage, issuer: issuer,
+                scopesSupported: MCPServer.mcpScopes, served: .core,
+                resourceIdentity: .colocated, resourcePolicy: policy)
             MCPServer.writeStderr("  OAuth 2.0: ENABLED (issuer: \(issuer))\n")
             return server
         } catch {
@@ -702,6 +704,14 @@ extension MCPServer {
 
             """)
     }
+
+    /// The scopes an MCP server grants, advertised in its OAuth metadata.
+    ///
+    /// Public because a consumer that builds its own `OAuthServer` — rather than letting this
+    /// package build one — must supply the same list, and the alternative is that it writes the
+    /// literal out again. Two copies of a set of scopes is precisely the drift that put `mcp:`
+    /// scopes inside a general-purpose OAuth library in the first place. One source, exported.
+    public static let mcpScopes = ["mcp:tools", "mcp:resources", "mcp:prompts"]
 
     /// Thread-safe stderr writer
     static func writeStderr(_ message: String) {
