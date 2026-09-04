@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [3.3.2] - 2026-09-03
+
+### Security
+- **`swift-oauth` 0.12.1 — PKCE is now actually required.** Every version this package has ever
+  depended on, `0.0.1` through `0.14.0`, accepted an authorization request with no
+  `code_challenge` and then redeemed the resulting code with no verifier: the token endpoint
+  verified a challenge only `if` the code carried one. An intercepted authorization code was
+  redeemable by whoever intercepted it, which is the single attack PKCE exists to prevent.
+
+  This package delegates every OAuth grant, so the defect was ours to suffer and never ours to
+  see. Confirmed present in the `0.12.0` this package shipped with two hours ago
+  (`OAuthServer.swift:528`), and confirmed fixed in `0.12.1` by a hard `guard` at the
+  authorization endpoint rather than by a comment.
+
+  **Behaviour change, not only a fix.** A client that sends no `code_challenge` is now refused.
+  Since every grant is delegated, that refusal is this server's whether or not anything here
+  changes. This package's own integration tests already send one and pass unchanged, but a
+  third-party client that omits PKCE will break on adoption, and the error surfaces here rather
+  than at whoever wrote it.
+
+  Found by an audit of what this package *relies on* rather than what it does — the eight
+  guarantees now listed in `HANDOFF.md`. Row one was the row that did not hold. Neither side
+  could have found it alone: this package cannot see it because it implements no OAuth, and
+  upstream could not see it because its tests were written against the same assumption as its
+  code.
+
 ## [3.3.1] - 2026-09-03
 
 ### Fixed

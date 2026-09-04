@@ -105,8 +105,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-oauth.git",
       "state" : {
-        "revision" : "81ff456854093bb8bf16484464d88970bd858b55",
-        "version" : "0.12.0"
+        "revision" : "cb63b242d70febdb140a99ad2bd328ee3912ae88",
+        "version" : "0.12.1"
       }
     },
     {
