@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-09-03
+
+### Fixed
+- **This package would not have built on Linux**, which its README claims to support and which
+  nothing here tests. `ConformanceFixtures` held its HMAC signing key as
+  `private static let key = SymmetricKey(size: .bits256)`. On Apple platforms `Crypto`
+  re-exports CryptoKit, whose `SymmetricKey` is `Sendable`; on Linux it is swift-crypto's own
+  type, which carries no `Sendable` conformance anywhere in the package. A static property of a
+  non-`Sendable` type is a build error under Swift 6 strict concurrency — so this compiled here
+  and would have failed there.
+
+  The key is now stored as `[UInt8]`, which is `Sendable` on both, and wrapped at each use. No
+  `@unchecked` conformance was needed to say so.
+
+  Found by checking a report from `swift-oauth`, whose Linux CI caught three instances of the
+  same shape in one afternoon. The general rule is worth stating: **a swift-crypto key type
+  stored in a `Sendable` context is a Linux build failure waiting for a CI run**, and this
+  package has no such run.
+
+### Note
+Two quality-gate findings were worth more than the fix. Generating the bytes with
+`UInt8.random` drew a seeded-RNG warning — correct for a stochastic test and wrong for a signing
+key, since a key a caller can make deterministic is a key an attacker can predict, so the
+randomness stays in the cryptography library. Copying them out with `[UInt8](raw)` then drew a
+pointer-escape error, also correctly: an initializer may keep the pointer it is handed. The
+bytes are copied scalar by scalar, and the pointer never leaves its block.
+
 ## [3.3.0] - 2026-09-03
 
 ### Changed
